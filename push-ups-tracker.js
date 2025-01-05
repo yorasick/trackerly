@@ -82,7 +82,6 @@ function prompt(question) {
                 const userName = message.sender?.username || message.sender?.firstName || `User ${message.senderId}`;
                 const pushUps = parseInt(message.text, 10);
 
-                console.log('PUSH UPS', pushUps);
                 if (!pushUpCounts[userName]) {
                     pushUpCounts[userName] = 0;
                 }
