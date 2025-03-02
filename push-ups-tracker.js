@@ -24,16 +24,27 @@ function prompt(question) {
     }));
 }
 
+// Utility to get month key in YYYY-MM format
+function getMonthKey(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
 (async () => {
     // Load session string from file if it exists
     let sessionString = '';
-    let pushUpCounts = {};
+    let pushUpData = {
+        monthly: {},  // Structure: { userName: { YYYY-MM: count } }
+        totals: {}    // Structure: { userName: totalCount }
+    };
     let lastOffsetId = 0;
 
     if (fs.existsSync(FILE_NAME)) {
         const data = JSON.parse(fs.readFileSync(FILE_NAME, 'utf8'));
         sessionString = data.sessionString || '';
-        pushUpCounts = data.totals || {};
+        pushUpData = {
+            monthly: data.monthly || {},
+            totals: data.totals || {}
+        };
         lastOffsetId = data.lastOffsetId || 0;
     }
 
@@ -48,7 +59,12 @@ function prompt(question) {
         });
         console.log('Session initialized. Saving session string to file.');
         sessionString = client.session.save();
-        fs.writeFileSync(FILE_NAME, JSON.stringify({ totals: pushUpCounts, lastOffsetId, sessionString }, null, 2));
+        fs.writeFileSync(FILE_NAME, JSON.stringify({ 
+            monthly: pushUpData.monthly,
+            totals: pushUpData.totals,
+            lastOffsetId,
+            sessionString 
+        }, null, 2));
     } else {
         await client.connect();
         console.log('Session restored using saved session string.');
@@ -56,9 +72,7 @@ function prompt(question) {
 
     console.log('You are logged in!');
 
-    // Fetch the group entity
-    // const me = await client.getMe();
-    const group = await client.getEntity (GROUP_ID).catch(error => {
+    const group = await client.getEntity(GROUP_ID).catch(error => {
         console.error(`Failed to find group "${GROUP_ID}"`);
         throw error;
     });
@@ -81,11 +95,22 @@ function prompt(question) {
             if (message.text && numberRegex.test(message.text)) {
                 const userName = message.sender?.username || message.sender?.firstName || `User ${message.senderId}`;
                 const pushUps = parseInt(message.text, 10);
+                const monthKey = getMonthKey(new Date(message.date * 1000));
 
-                if (!pushUpCounts[userName]) {
-                    pushUpCounts[userName] = 0;
+                // Initialize structures if they don't exist
+                if (!pushUpData.monthly[userName]) {
+                    pushUpData.monthly[userName] = {};
                 }
-                pushUpCounts[userName] += pushUps;
+                if (!pushUpData.monthly[userName][monthKey]) {
+                    pushUpData.monthly[userName][monthKey] = 0;
+                }
+                if (!pushUpData.totals[userName]) {
+                    pushUpData.totals[userName] = 0;
+                }
+
+                // Update both monthly and total counts
+                pushUpData.monthly[userName][monthKey] += pushUps;
+                pushUpData.totals[userName] += pushUps;
             }
 
             lastOffsetId = Math.max(lastOffsetId, message.id);
@@ -94,11 +119,25 @@ function prompt(question) {
         offsetId = messages[messages.length - 1].id;
     }
 
-    console.log('Push-Up Totals:', JSON.stringify(pushUpCounts, null, 2));
+    // Display monthly statistics
+    console.log('\nMonthly Push-Up Statistics:');
+    for (const userName in pushUpData.monthly) {
+        console.log(`\n${userName}:`);
+        const months = Object.keys(pushUpData.monthly[userName]).sort();
+        for (const month of months) {
+            console.log(`  ${month}: ${pushUpData.monthly[userName][month]} push-ups`);
+        }
+        console.log(`  Total: ${pushUpData.totals[userName]} push-ups`);
+    }
 
-    // Write updated totals, offsetId, and session string to the file
-    fs.writeFileSync(FILE_NAME, JSON.stringify({ totals: pushUpCounts, lastOffsetId, sessionString }, null, 2));
+    // Write updated data to the file
+    fs.writeFileSync(FILE_NAME, JSON.stringify({
+        monthly: pushUpData.monthly,
+        totals: pushUpData.totals,
+        lastOffsetId,
+        sessionString
+    }, null, 2));
 
-    console.log('Push-Up totals and session string updated and written to push_up_totals.json');
+    console.log('\nPush-Up statistics updated and written to push_up_totals.json');
     await client.disconnect();
 })();
